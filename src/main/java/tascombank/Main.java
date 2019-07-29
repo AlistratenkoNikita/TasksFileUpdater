@@ -5,25 +5,21 @@ import java.io.BufferedWriter;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Main {
 
-	private static final String SERVICE_BLOCK_SEPERATOR = "#######################################################" +
-			"########################################################";
-	private static final String TASK_REGEX = "\\nI-\\d{4,6}";
-	private static final String SERVICE_REGEX = "\\n(\\w+-service)";
+	private static final String TASK_REGEX = "^I-\\d{4,6}";
+	private static final String SERVICE_REGEX = "^\\w+-service";
+
 	private static StringBuilder data = new StringBuilder();
-	private static List<String> services = new LinkedList<>();
 
 	private static LinkedHashMap<String, Set<String>> tasks = new LinkedHashMap<>();
 
@@ -31,13 +27,7 @@ public class Main {
 		if (args != null && args.length > 0) {
 			File file = new File(args[0]);
 			if (file.exists()) {
-				prettify(file);
-				readFile(file);
-
-				readServices();
-
-				countTasksEntries();
-
+				read(file);
 				updateFile(file.getAbsolutePath());
 			}
 		}
@@ -54,135 +44,104 @@ public class Main {
 		return filePath.substring(0, extensionStart) + "_updated" + filePath.substring(extensionStart);
 	}
 
-	/**
-	 * Reads the names of the services in the file
-	 */
-	private static void readServices() {
-		Pattern pattern = Pattern.compile(SERVICE_REGEX);
-		Matcher matcher = pattern.matcher(data);
-
-		while (matcher.find()) {
-			services.add(matcher.group().trim());
-		}
-	}
 
 	/**
-	 * Counts where every task is featured
+	 * Reads file, counts the task featuring in the services
+	 *
+	 * @param file file to read
 	 */
-	private static void countTasksEntries() {
-		String[] blocks = data.toString().split(SERVICE_BLOCK_SEPERATOR);
+	private static void read(File file) {
+		try (FileInputStream inputStream = new FileInputStream(file);
+			 DataInputStream in = new DataInputStream(inputStream);
+			 BufferedReader br = new BufferedReader(new InputStreamReader(in))) {
+			String line;
+			String currentService = null;
+			while ((line = br.readLine()) != null) {
+				String tmp;
 
-		for (int i = 0; i < blocks.length; i++) {
-			for (String task : findTasks(blocks[i])) {
-				if (!tasks.containsKey(task.trim())) {
-					tasks.put(task.trim(), new LinkedHashSet<>());
+				if (!(tmp = findService(line)).isEmpty()) {
+					currentService = tmp;
+				}
+				if (!(tmp = findTask(line)).isEmpty()) {
+					if (!tasks.containsKey(tmp)) {
+						tasks.put(tmp, new LinkedHashSet<>());
+					}
+
+					tasks.get(tmp).add(currentService);
 				}
 
-				tasks.get(task.trim()).add(services.get(i));
+				data.append(line);
+				data.append(System.getProperty("line.separator"));
 			}
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 
 	/**
-	 * Finds all tasks from the file
+	 * Checks the line for some pattern availability
 	 *
-	 * @param block String where to find the task in
-	 * @return List of all represented tasks
+	 * @param line          line to check
+	 * @param patternString pattern to find
+	 * @return found matching line
 	 */
-	private static List<String> findTasks(String block) {
-		List<String> result = new LinkedList<>();
-		Pattern pattern = Pattern.compile(TASK_REGEX);
-		Matcher matcher = pattern.matcher(block);
+	private static String checkPattern(String line, String patternString) {
+		Pattern pattern = Pattern.compile(patternString);
+		Matcher matcher = pattern.matcher(line);
 
-		while (matcher.find()) {
-			result.add(matcher.group().trim());
-		}
-
-		return result;
+		return matcher.find() ? matcher.group().trim() : "";
 	}
 
 	/**
-	 * Reads file to String
+	 * Checks the line for task availability
 	 *
-	 * @param file File to read
-	 * @throws Exception any problem with file reading
+	 * @param line line to check
+	 * @return found task
 	 */
-	private static void readFile(File file) throws Exception {
-		FileInputStream inputStream = new FileInputStream(file);
-		DataInputStream in = new DataInputStream(inputStream);
-		BufferedReader br = new BufferedReader(new InputStreamReader(in));
-
-		String line;
-		while ((line = br.readLine()) != null) {
-			data.append(line);
-			data.append(System.getProperty("line.separator"));
-		}
-		inputStream.close();
+	private static String findTask(String line) {
+		return checkPattern(line, TASK_REGEX);
 	}
 
 	/**
-	 * Adds first empty line
+	 * Checks the line for service availability
 	 *
-	 * @param file file to add new line to
-	 * @throws Exception any problem with file reading
+	 * @param line line to check
+	 * @return found service
 	 */
-	private static void prettify(File file) throws Exception {
-		FileInputStream inputStream = new FileInputStream(file);
-		DataInputStream in = new DataInputStream(inputStream);
-		BufferedReader br = new BufferedReader(new InputStreamReader(in));
+	private static String findService(String line) {
+		return checkPattern(line, SERVICE_REGEX);
+	}
 
-		StringBuilder newData = new StringBuilder();
+	/**
+	 * Creates new file with updated information
+	 *
+	 * @param oldFilePath old file path with name
+	 */
+	private static void updateFile(String oldFilePath) {
+		try (BufferedWriter outputStream = new BufferedWriter(new FileWriter(createNewFileName(oldFilePath)))) {
+			String[] oldFileData = data.toString().split(System.getProperty("line.separator"));
 
-		String line;
-		boolean firstLine = true;
-		while ((line = br.readLine()) != null) {
-			if (firstLine) {
-				if (!line.isEmpty()) {
-					newData.append(System.getProperty("line.separator"));
+			String currentService = null;
+			for (String line : oldFileData) {
+				StringBuilder newLine = new StringBuilder(line.trim());
+				String tmp;
+
+				if (!(tmp = findService(line)).isEmpty()) {
+					currentService = tmp;
 				}
-				firstLine = false;
-			}
-
-			newData.append(line);
-			newData.append(System.getProperty("line.separator"));
-		}
-		inputStream.close();
-
-		FileOutputStream outputStream = new FileOutputStream(new File(file.getAbsolutePath()));
-		outputStream.write(newData.toString().getBytes());
-		outputStream.close();
-
-	}
-
-	/**
-	 * Creates new file with updated information for tasks featuring in other services
-	 *
-	 * @param oldFilePath file with
-	 * @throws Exception any problem with file writing
-	 */
-	private static void updateFile(String oldFilePath) throws Exception {
-		BufferedWriter outputStream = new BufferedWriter(new FileWriter(createNewFileName(oldFilePath)));
-		String[] oldFileData = data.toString().split(System.getProperty("line.separator"));
-
-		int serviceCounter = 0;
-
-		for (String oldFileDatum : oldFileData) {
-			if (oldFileDatum.contains(SERVICE_BLOCK_SEPERATOR)) {
-				serviceCounter++;
-			}
-
-			StringBuilder newLine = new StringBuilder(oldFileDatum.trim());
-			if (tasks.containsKey(oldFileDatum.trim())) {
-				for (String service : tasks.get(oldFileDatum.trim())) {
-					if (!service.equals(services.get(serviceCounter)))
-						newLine.append("\t\t").append(service);
+				if (!(tmp = findTask(line)).isEmpty()) {
+					for (String service : tasks.get(tmp)) {
+						if (!currentService.equals(service)) {
+							newLine.append("\t\t").append(service);
+						}
+					}
 				}
+
+				outputStream.write(newLine.toString());
+				outputStream.newLine();
 			}
-
-			outputStream.write(newLine.toString());
-			outputStream.newLine();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
-
-		outputStream.close();
 	}
 }
